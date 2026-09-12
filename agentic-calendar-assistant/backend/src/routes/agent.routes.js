@@ -36,13 +36,15 @@ agentRoutes.get("/threads/:threadId", async (req, res) => {
     res.status(400).json({ error: "Invalid threadId" });
     return;
   }
+
   try {
     const messages = await getThreadMessages(req.auth.authUserId, parsed.data);
     res.json({ threadId: parsed.data, messages });
   } catch (error) {
+    const status = error instanceof Error && error.message === "Thread not found" ? 404 : 500;
     const message =
-      error instanceof Error ? error.message : "failed to list threads";
-    res.status(500).json({ error: message });
+      error instanceof Error ? error.message : "failed to load thread";
+    res.status(status).json({ error: message });
   }
 });
 
@@ -54,18 +56,19 @@ agentRoutes.post("/chat", async (req, res) => {
   }
 
   res.status(200);
-  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
   const write = (event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
   };
 
   try {
     await streamAgentReply({
-      userId: req.auth.userId,
       authUserId: req.auth.authUserId,
       threadId: parsed.data.threadId,
       message: parsed.data.message,
@@ -73,9 +76,11 @@ agentRoutes.post("/chat", async (req, res) => {
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "failed to list threads";
+      error instanceof Error ? error.message : "Agent request failed";
     write({ type: "error", message });
   } finally {
-    res.end();
+    if (!res.writableEnded) {
+      res.end();
+    }
   }
 });
