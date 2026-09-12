@@ -16,8 +16,11 @@ function calendarClient(accessToken) {
 }
 
 async function calendarForUser(authUserId) {
-  const accessToken = await getCalendarAccessToken(authUserId);
+  if (!authUserId) {
+    throw new Error("Calendar user identity is missing");
+  }
 
+  const accessToken = await getCalendarAccessToken(authUserId);
   return calendarClient(accessToken);
 }
 
@@ -33,23 +36,34 @@ function formatEvent(event) {
     meetLink: event.hangoutLink ?? null,
     attendees: (event.attendees ?? [])
       .map((person) => person.email || person.displayName)
-      .filter((value) => Boolean(value)),
+      .filter(Boolean),
   };
+}
+
+function assertDateRange(startIso, endIso) {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error("Invalid start or end datetime");
+  }
+
+  if (end <= start) {
+    throw new Error("Meeting end time must be after the start time");
+  }
 }
 
 export async function listUpcomingMeetings(input) {
   const calendar = await calendarForUser(input.authUserId);
-
-  let timeMin = new Date().toISOString();
-
+  const now = new Date();
+  let timeMin = now.toISOString();
   let timeMax;
 
   if (input.todayOnly) {
-    const start = new Date();
-
+    const start = new Date(now);
     start.setHours(0, 0, 0, 0);
 
-    const end = new Date();
+    const end = new Date(now);
     end.setHours(23, 59, 59, 999);
 
     timeMin = start.toISOString();
@@ -59,7 +73,7 @@ export async function listUpcomingMeetings(input) {
   const response = await calendar.events.list({
     calendarId: "primary",
     timeMin,
-    timeMax,
+    ...(timeMax ? { timeMax } : {}),
     maxResults: input.maxResults ?? 10,
     singleEvents: true,
     orderBy: "startTime",
@@ -69,34 +83,31 @@ export async function listUpcomingMeetings(input) {
 }
 
 export async function createMeeting(input) {
-  const calendar = await calendarForUser(input.authUserId);
+  assertDateRange(input.startIso, input.endIso);
 
+  const calendar = await calendarForUser(input.authUserId);
   const withMeet = input.addGoogleMeet !== false;
 
   const response = await calendar.events.insert({
     calendarId: "primary",
     sendUpdates: "all",
-    conferenceDataVersion: withMeet ? 1 : undefined,
+    ...(withMeet ? { conferenceDataVersion: 1 } : {}),
     requestBody: {
       summary: input.title,
-      description: input.description,
-      start: {
-        dateTime: input.startIso,
-      },
-      end: {
-        dateTime: input.endIso,
-      },
+      ...(input.description ? { description: input.description } : {}),
+      start: { dateTime: input.startIso },
+      end: { dateTime: input.endIso },
       attendees: (input.attendeeEmails ?? []).map((email) => ({ email })),
-      conferenceData: withMeet
+      ...(withMeet
         ? {
-            createRequest: {
-              requestId: randomUUID(),
-              conferenceSolutionKey: {
-                type: "hangoutsMeet",
+            conferenceData: {
+              createRequest: {
+                requestId: randomUUID(),
+                conferenceSolutionKey: { type: "hangoutsMeet" },
               },
             },
           }
-        : undefined,
+        : {}),
     },
   });
 
@@ -116,13 +127,12 @@ export async function cancelMeeting(input) {
     sendUpdates: "all",
   });
 
-  return {
-    cancelled: true,
-    eventId: input.eventId,
-  };
+  return { cancelled: true, eventId: input.eventId };
 }
 
 export async function rescheduleMeeting(input) {
+  assertDateRange(input.startIso, input.endIso);
+
   const calendar = await calendarForUser(input.authUserId);
 
   const response = await calendar.events.patch({
@@ -130,12 +140,8 @@ export async function rescheduleMeeting(input) {
     eventId: input.eventId,
     sendUpdates: "all",
     requestBody: {
-      start: {
-        dateTime: input.startIso,
-      },
-      end: {
-        dateTime: input.endIso,
-      },
+      start: { dateTime: input.startIso },
+      end: { dateTime: input.endIso },
     },
   });
 
@@ -143,17 +149,14 @@ export async function rescheduleMeeting(input) {
 }
 
 export async function checkCalendarBusy(input) {
-  const calendar = await calendarForUser(input.authUserId);
+  assertDateRange(input.startIso, input.endIso);
 
+  const calendar = await calendarForUser(input.authUserId);
   const response = await calendar.freebusy.query({
     requestBody: {
       timeMin: input.startIso,
       timeMax: input.endIso,
-      items: [
-        {
-          id: "primary",
-        },
-      ],
+      items: [{ id: "primary" }],
     },
   });
 
