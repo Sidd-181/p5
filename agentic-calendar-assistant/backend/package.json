@@ -1,0 +1,27 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "migrate": "node scripts/migrate.js"
+  },
+  "type": "module",
+  "dependencies": {
+    "@descope/mcp-express": "^1.6.0",
+    "@descope/node-sdk": "^2.14.0",
+    "@mastra/core": "^1.59.0",
+    "@mastra/libsql": "^1.20.0",
+    "@mastra/memory": "^1.26.2",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.6",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "googleapis": "^174.0.1",
+    "pg": "^8.23.0",
+    "zod": "^4.4.3"
+  }
+}
