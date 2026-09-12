@@ -111,7 +111,7 @@ const SUGGESTIONS = [
   "What's on today?",
   "What's on tomorrow?",
   "Find a free slot tomorrow morning",
-  "Create a meeting on 20th aug and keep the time as 10am for 30 minutes and keep sangammukherjee1996@gmail as attendee",
+  "Create a meeting tomorrow at 10am for 30 minutes and invite sangammukherjee1996@gmail.com",
 ];
 
 function WelcomeMessage() {
@@ -140,7 +140,9 @@ function ChatPanel({ sessionToken, connections, footer }) {
     try {
       const data = await listThreads(sessionToken);
       setThreads(data.threads);
-    } catch {}
+    } catch {
+      // The dashboard remains usable when thread history is temporarily unavailable.
+    }
   }, [sessionToken]);
 
   useEffect(() => {
@@ -170,13 +172,13 @@ function ChatPanel({ sessionToken, connections, footer }) {
         data.messages.length > 0 ? data.messages : [WelcomeMessage()],
       );
       setPrompt("");
-    } catch {
+    } catch (error) {
       setMessages((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           role: "system",
-          content: "Could not load the chat",
+          content: error instanceof Error ? error.message : "Could not load the chat",
         },
       ]);
     } finally {
@@ -192,16 +194,8 @@ function ChatPanel({ sessionToken, connections, footer }) {
 
     setMessages((current) => [
       ...current,
-      {
-        id: crypto.randomUUID(),
-        role: "user",
-        content: trimmed,
-      },
-      {
-        id: assistantId,
-        role: "assistant",
-        content: "",
-      },
+      { id: crypto.randomUUID(), role: "user", content: trimmed },
+      { id: assistantId, role: "assistant", content: "" },
     ]);
 
     setPrompt("");
@@ -211,23 +205,18 @@ function ChatPanel({ sessionToken, connections, footer }) {
     try {
       await streamAgentChat(
         sessionToken,
-        {
-          message: trimmed,
-          threadId,
-        },
+        { message: trimmed, threadId },
         (event) => {
           if (event.type === "progress" && event.message) {
             setProgress(event.message);
           }
+
           if (event.type === "token" && event.token) {
             setProgress(null);
             setMessages((current) =>
               current.map((message) =>
                 message.id === assistantId
-                  ? {
-                      ...message,
-                      content: message.content + event.token,
-                    }
+                  ? { ...message, content: message.content + event.token }
                   : message,
               ),
             );
@@ -240,7 +229,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
                 message.id === assistantId
                   ? {
                       ...message,
-                      content: event.message ?? "Agent failed",
+                      content: `**Agent error:** ${event.message ?? "Agent failed"}`,
                     }
                   : message,
               ),
@@ -249,16 +238,20 @@ function ChatPanel({ sessionToken, connections, footer }) {
         },
       );
 
-      refreshThreads();
-    } catch {
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "system",
-          content: "Could not reach the agent API",
-        },
-      ]);
+      await refreshThreads();
+    } catch (error) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: `**Request failed:** ${
+                  error instanceof Error ? error.message : "Could not reach the agent API"
+                }`,
+              }
+            : message,
+        ),
+      );
     } finally {
       setRunning(false);
       setProgress(null);
@@ -292,11 +285,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
         </div>
 
         <div className={styles.topActions}>
-          <Button
-            onClick={startNewChat}
-            variant="outline"
-            className={styles.newChatBtn}
-          >
+          <Button onClick={startNewChat} variant="outline" className={styles.newChatBtn}>
             <MessageSquarePlus className={styles.newChatIcon} />
             New Chat
           </Button>
@@ -307,9 +296,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
           <p className={styles.chatsTitle}>Chats</p>
           <ScrollArea className={styles.chatsScroll}>
             {threads.length === 0 ? (
-              <p className={styles.chatsEmpty}>
-                No chats yet. Start one and it will show up here.
-              </p>
+              <p className={styles.chatsEmpty}>No chats yet. Start one and it will show up here.</p>
             ) : (
               <div className={styles.threadList}>
                 {threads.map((thread) => {
@@ -326,9 +313,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
                       )}
                     >
                       <span className={styles.threadTitle}>{thread.title}</span>
-                      <span className={styles.threadTime}>
-                        {thread.updatedAt}
-                      </span>
+                      <span className={styles.threadTime}>{thread.updatedAt}</span>
                     </button>
                   );
                 })}
@@ -337,7 +322,6 @@ function ChatPanel({ sessionToken, connections, footer }) {
           </ScrollArea>
         </div>
         <Separator className={styles.separator} />
-
         <div className={styles.footer}>{footer}</div>
       </aside>
 
@@ -345,9 +329,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
         <header className={styles.header}>
           <div className={styles.headerText}>
             <p className={styles.headerTitle}>Assistant</p>
-            <p className={styles.headerSubtitle}>
-              Schedule, reschedule, and brief your day
-            </p>
+            <p className={styles.headerSubtitle}>Schedule, reschedule, and brief your day</p>
           </div>
         </header>
 
@@ -386,9 +368,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
                     </div>
                   ) : (
                     messages.map((message) => {
-                      if (message.id === "welcome" && messages.length > 1) {
-                        return null;
-                      }
+                      if (message.id === "welcome" && messages.length > 1) return null;
 
                       return (
                         <div
@@ -404,8 +384,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
                             className={cn(
                               styles.bubble,
                               message.role === "user" && styles.bubbleUser,
-                              message.role === "assistant" &&
-                                styles.bubbleAssistant,
+                              message.role === "assistant" && styles.bubbleAssistant,
                               message.role === "system" && styles.bubbleSystem,
                             )}
                           >
@@ -415,17 +394,11 @@ function ChatPanel({ sessionToken, connections, footer }) {
                                 Thinking...
                               </span>
                             ) : message.role === "user" ? (
-                              <p className={styles.userText}>
-                                {message.content}
-                              </p>
+                              <p className={styles.userText}>{message.content}</p>
                             ) : (
                               <MarkdownMessage
                                 content={message.content}
-                                tone={
-                                  message.role === "system"
-                                    ? "system"
-                                    : "assistant"
-                                }
+                                tone={message.role === "system" ? "system" : "assistant"}
                               />
                             )}
                           </div>
@@ -464,11 +437,7 @@ function ChatPanel({ sessionToken, connections, footer }) {
                 className={styles.sendBtn}
                 aria-label="Send Text Message"
               >
-                {running ? (
-                  <LoaderCircle className={styles.sendIconSpin} />
-                ) : (
-                  <ArrowUp className={styles.sendIcon} />
-                )}
+                {running ? <LoaderCircle className={styles.sendIconSpin} /> : <ArrowUp className={styles.sendIcon} />}
               </Button>
             </form>
           </div>
